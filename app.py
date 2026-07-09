@@ -29,8 +29,11 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "smart-farm-secret-key-c
 
 _db_url = os.environ.get("DATABASE_URL", "sqlite:///" + os.path.join(BASE_DIR, "farm.db"))
 if _db_url.startswith("postgres://"):
-    # SQLAlchemy 2.x / psycopg2 requires the "postgresql://" scheme
     _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+if _db_url.startswith("postgresql://"):
+    # Use the psycopg (v3) driver, which ships prebuilt wheels for modern
+    # Python versions (psycopg2-binary lacks compatible wheels on some hosts)
+    _db_url = _db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
