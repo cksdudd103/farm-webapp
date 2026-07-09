@@ -4,3 +4,6 @@ farm.db
 static/uploads/*
 .env
 venv/
+run_log.txt
+server_log.txt
+cookies.txt
