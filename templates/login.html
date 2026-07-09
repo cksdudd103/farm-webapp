@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>스마트 영농관리 | 로그인</title>
+<meta name="theme-color" content="#2e7d32">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <i data-lucide="sprout" class="logo-icon"></i>
+        <h1>스마트 영농관리</h1>
+        <p>언제 어디서나 편리한 농장 관리</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">로그인</button>
+        <button class="auth-tab" data-tab="register">회원가입</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <div class="form-group">
+          <label>이메일</label>
+          <input type="email" id="loginEmail" placeholder="example@farm.com" required>
+        </div>
+        <div class="form-group">
+          <label>비밀번호</label>
+          <input type="password" id="loginPassword" placeholder="비밀번호 입력" required>
+        </div>
+        <div id="loginError" class="form-error"></div>
+        <button type="submit" class="btn btn-primary btn-block">로그인</button>
+      </form>
+
+      <form id="registerForm" class="auth-form hidden">
+        <div class="form-group">
+          <label>이름</label>
+          <input type="text" id="regName" placeholder="홍길동" required>
+        </div>
+        <div class="form-group">
+          <label>이메일</label>
+          <input type="email" id="regEmail" placeholder="example@farm.com" required>
+        </div>
+        <div class="form-group">
+          <label>비밀번호</label>
+          <input type="password" id="regPassword" placeholder="6자 이상" required>
+        </div>
+        <div class="form-group">
+          <label>연락처</label>
+          <input type="text" id="regPhone" placeholder="010-0000-0000">
+        </div>
+        <div class="form-group">
+          <label>농장명</label>
+          <input type="text" id="regFarmName" placeholder="예) 행복한 농장">
+        </div>
+        <div class="form-group">
+          <label>지역</label>
+          <input type="text" id="regRegion" placeholder="예) 전라남도 나주시">
+        </div>
+        <div id="registerError" class="form-error"></div>
+        <button type="submit" class="btn btn-primary btn-block">회원가입</button>
+      </form>
+
+      <div class="auth-demo">
+        <p>데모 계정으로 빠르게 체험해보세요</p>
+        <div class="demo-buttons">
+          <button class="btn btn-outline btn-sm" id="demoAdminBtn">관리자 데모</button>
+          <button class="btn btn-outline btn-sm" id="demoFarmerBtn">농민 데모</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>스마트 영농관리</title>
+<meta name="theme-color" content="#2e7d32">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="app-shell" id="appShell" data-role="{{ user.role }}">
+
+  <!-- 데스크톱 사이드바 -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <i data-lucide="sprout"></i>
+      <span>스마트 영농관리</span>
+    </div>
+    <nav class="sidebar-nav" id="sidebarNav">
+      <a class="nav-link active" data-page="dashboard"><i data-lucide="layout-dashboard"></i><span>대시보드</span></a>
+      <a class="nav-link" data-page="crops"><i data-lucide="leaf"></i><span>작물 관리</span></a>
+      <a class="nav-link" data-page="journals"><i data-lucide="notebook-pen"></i><span>영농 일지</span></a>
+      <a class="nav-link" data-page="tasks"><i data-lucide="calendar-check"></i><span>작업 일정</span></a>
+      <a class="nav-link" data-page="inventory"><i data-lucide="package"></i><span>재고 관리</span></a>
+      <a class="nav-link" data-page="diagnosis"><i data-lucide="scan-eye"></i><span>AI 작물 진단</span></a>
+      <a class="nav-link" data-page="market"><i data-lucide="trending-up"></i><span>농산물 시세</span></a>
+      <a class="nav-link" data-page="weather"><i data-lucide="cloud-sun"></i><span>날씨 예보</span></a>
+      <a class="nav-link" data-page="pesticide"><i data-lucide="flask-conical"></i><span>농약 정보</span></a>
+      <a class="nav-link" data-page="support"><i data-lucide="badge-percent"></i><span>정부 지원사업</span></a>
+      <a class="nav-link" data-page="rda"><i data-lucide="newspaper"></i><span>농업진흥청 새소식</span></a>
+      <a class="nav-link" data-page="community"><i data-lucide="users-round"></i><span>커뮤니티</span></a>
+      <a class="nav-link" data-page="shipments"><i data-lucide="truck"></i><span>출하 관리</span></a>
+      <a class="nav-link" data-page="safety"><i data-lucide="shield-alert"></i><span>농작업 안전</span></a>
+      <a class="nav-link" data-page="links"><i data-lucide="link"></i><span>농업 링크 모음</span></a>
+      <a class="nav-link user-only" data-page="pricing"><i data-lucide="credit-card"></i><span>요금제</span></a>
+      <a class="nav-link admin-only" data-page="admin" style="display:none"><i data-lucide="user-cog"></i><span>사용자 관리</span></a>
+      <a class="nav-link admin-only" data-page="plans" style="display:none"><i data-lucide="badge-dollar-sign"></i><span>요금제 관리</span></a>
+      <a class="nav-link admin-only" data-page="grades" style="display:none"><i data-lucide="award"></i><span>등급 관리</span></a>
+      <a class="nav-link admin-only" data-page="promos" style="display:none"><i data-lucide="ticket-percent"></i><span>프로모션 코드</span></a>
+      <a class="nav-link admin-only" data-page="linksAdmin" style="display:none"><i data-lucide="link-2"></i><span>링크 관리</span></a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="avatar">{{ user.name[0] if user.name else 'U' }}</div>
+        <div class="user-info">
+          <strong id="sideUserName">{{ user.name }}</strong>
+          <small id="sideUserRole">{{ '관리자' if user.role=='admin' else '농민회원' }}</small>
+          <span class="grade-badge" id="sideUserGrade"></span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm btn-block" id="logoutBtn"><i data-lucide="log-out"></i> 로그아웃</button>
+    </div>
+  </aside>
+
+  <!-- 모바일 상단 헤더 -->
+  <header class="mobile-header">
+    <div class="mobile-header-logo"><i data-lucide="sprout"></i><span id="mobileHeaderTitle">대시보드</span></div>
+    <button class="icon-btn" id="mobileLogoutBtn"><i data-lucide="log-out"></i></button>
+  </header>
+
+  <!-- 메인 콘텐츠 -->
+  <main class="main-content" id="mainContent">
+
+    <!-- 대시보드 -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header">
+        <h2>대시보드</h2>
+        <p class="page-sub">오늘도 좋은 하루 되세요, <span id="dashUserName"></span>님 <span class="grade-badge" id="dashUserGrade"></span></p>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <i data-lucide="leaf" class="stat-icon green"></i>
+          <div><div class="stat-value" id="statCrops">0</div><div class="stat-label">재배중인 작물</div></div>
+        </div>
+        <div class="stat-card">
+          <i data-lucide="calendar-clock" class="stat-icon amber"></i>
+          <div><div class="stat-value" id="statTasks">0</div><div class="stat-label">진행 예정 작업</div></div>
+        </div>
+        <div class="stat-card">
+          <i data-lucide="alert-triangle" class="stat-icon red"></i>
+          <div><div class="stat-value" id="statLowStock">0</div><div class="stat-label">재고 부족 품목</div></div>
+        </div>
+        <div class="stat-card">
+          <i data-lucide="wallet" class="stat-icon blue"></i>
+          <div><div class="stat-value" id="statShipment">0원</div><div class="stat-label">누적 출하 금액</div></div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-header"><h3>최근 7일 영농일지 기록</h3></div>
+          <div class="card-body"><canvas id="journalChart" height="180"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>작물 상태 분포</h3></div>
+          <div class="card-body"><canvas id="cropStatusChart" height="180"></canvas></div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card plan-card" id="dashPlanCard">
+          <div class="card-header"><h3>내 요금제</h3><a class="link" data-page="pricing">요금제 보기</a></div>
+          <div class="card-body" id="dashPlanCardBody"></div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-header"><h3>다가오는 작업</h3><a class="link" data-page="tasks">전체보기</a></div>
+          <div class="card-body"><ul class="simple-list" id="upcomingTasksList"></ul></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>최근 영농일지</h3><a class="link" data-page="journals">전체보기</a></div>
+          <div class="card-body"><ul class="simple-list" id="recentJournalsList"></ul></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 작물 관리 -->
+    <section class="page" id="page-crops">
+      <div class="page-header">
+        <h2>작물 관리</h2>
+        <button class="btn btn-primary" data-modal="cropModal"><i data-lucide="plus"></i> 작물 등록</button>
+      </div>
+      <div class="grid-cards" id="cropList"></div>
+    </section>
+
+    <!-- 영농 일지 -->
+    <section class="page" id="page-journals">
+      <div class="page-header">
+        <h2>영농 일지</h2>
+        <button class="btn btn-primary" data-modal="journalModal"><i data-lucide="plus"></i> 일지 작성</button>
+      </div>
+      <div class="timeline-list" id="journalList"></div>
+    </section>
+
+    <!-- 작업 일정 -->
+    <section class="page" id="page-tasks">
+      <div class="page-header">
+        <h2>작업 일정</h2>
+        <button class="btn btn-primary" data-modal="taskModal"><i data-lucide="plus"></i> 작업 추가</button>
+      </div>
+      <div class="task-board" id="taskBoard">
+        <div class="task-col" data-status="예정"><h4>예정</h4><div class="task-col-list" id="col-예정"></div></div>
+        <div class="task-col" data-status="진행중"><h4>진행중</h4><div class="task-col-list" id="col-진행중"></div></div>
+        <div class="task-col" data-status="완료"><h4>완료</h4><div class="task-col-list" id="col-완료"></div></div>
+      </div>
+    </section>
+
+    <!-- 재고 관리 -->
+    <section class="page" id="page-inventory">
+      <div class="page-header">
+        <h2>재고 관리</h2>
+        <button class="btn btn-primary" data-modal="inventoryModal"><i data-lucide="plus"></i> 재고 등록</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="inventoryTable">
+          <thead><tr><th>품목명</th><th>분류</th><th>수량</th><th>보관장소</th><th>유효기한</th><th>관리</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- AI 작물 진단 -->
+    <section class="page" id="page-diagnosis">
+      <div class="page-header"><h2>AI 작물 진단</h2></div>
+      <div class="card">
+        <div class="card-body">
+          <form id="diagnosisForm" class="inline-form">
+            <div class="form-group">
+              <label>작물명</label>
+              <input type="text" id="diagCropName" placeholder="예) 고추">
+            </div>
+            <div class="form-group">
+              <label>잎/작물 사진 업로드</label>
+              <input type="file" id="diagImage" accept="image/*" required>
+            </div>
+            <button type="submit" class="btn btn-primary"><i data-lucide="scan-search"></i> 진단하기</button>
+          </form>
+          <div id="diagResult" class="diag-result hidden"></div>
+        </div>
+      </div>
+      <h3 class="section-title">진단 이력</h3>
+      <div class="grid-cards" id="diagnosisHistory"></div>
+    </section>
+
+    <!-- 농산물 시세 -->
+    <section class="page" id="page-market">
+      <div class="page-header"><h2>농산물 시세</h2><p class="page-sub" id="marketDate"></p></div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>품목</th><th>단위</th><th>가격</th><th>등락률</th></tr></thead>
+          <tbody id="marketTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 날씨 예보 -->
+    <section class="page" id="page-weather">
+      <div class="page-header">
+        <h2>날씨 예보</h2>
+        <div class="form-group inline">
+          <input type="text" id="weatherRegionInput" placeholder="지역 입력 (예: 나주시)" value="전국">
+          <button class="btn btn-outline btn-sm" id="weatherSearchBtn">조회</button>
+        </div>
+      </div>
+      <div class="weather-grid" id="weatherGrid"></div>
+    </section>
+
+    <!-- 농약 정보 -->
+    <section class="page" id="page-pesticide">
+      <div class="page-header">
+        <h2>농약 정보</h2>
+        <div class="form-group inline">
+          <input type="text" id="pesticideSearch" placeholder="농약명, 대상, 작물 검색">
+        </div>
+      </div>
+      <div class="grid-cards" id="pesticideList"></div>
+    </section>
+
+    <!-- 정부 지원사업 -->
+    <section class="page" id="page-support">
+      <div class="page-header"><h2>정부 지원사업</h2></div>
+      <div class="grid-cards" id="supportList"></div>
+    </section>
+
+    <!-- 농업진흥청 새소식 -->
+    <section class="page" id="page-rda">
+      <div class="page-header">
+        <h2>농업진흥청 새소식</h2>
+        <button class="btn btn-primary admin-only" style="display:none" data-modal="rdaModal"><i data-lucide="plus"></i> 소식 등록</button>
+      </div>
+      <div class="timeline-list" id="rdaList"></div>
+    </section>
+
+    <!-- 커뮤니티 -->
+    <section class="page" id="page-community">
+      <div class="page-header">
+        <h2>커뮤니티</h2>
+        <button class="btn btn-primary" data-modal="postModal"><i data-lucide="plus"></i> 글쓰기</button>
+      </div>
+      <div class="board-toolbar">
+        <div class="board-tabs" id="postCategoryTabs">
+          <button type="button" class="board-tab active" data-category="전체">전체</button>
+          <button type="button" class="board-tab" data-category="공지">공지</button>
+          <button type="button" class="board-tab" data-category="자유">자유</button>
+          <button type="button" class="board-tab" data-category="질문">질문</button>
+          <button type="button" class="board-tab" data-category="판매">판매</button>
+          <button type="button" class="board-tab" data-category="정보공유">정보공유</button>
+        </div>
+        <div class="board-search">
+          <input type="text" id="postSearchInput" placeholder="제목/내용 검색">
+          <button class="btn btn-outline btn-sm" id="postSearchBtn"><i data-lucide="search"></i></button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table board-table">
+          <thead><tr><th class="col-num">번호</th><th class="col-title">제목</th><th>작성자</th><th>날짜</th><th>조회</th><th>첨부</th></tr></thead>
+          <tbody id="postTableBody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="postPagination"></div>
+    </section>
+
+    <!-- 농업 링크 모음 -->
+    <section class="page" id="page-links">
+      <div class="page-header"><h2>농업 링크 모음</h2></div>
+      <div class="links-directory" id="linksDirectory"></div>
+    </section>
+
+
+    <!-- 출하 관리 -->
+    <section class="page" id="page-shipments">
+      <div class="page-header">
+        <h2>출하 관리</h2>
+        <button class="btn btn-primary" data-modal="shipmentModal"><i data-lucide="plus"></i> 출하 등록</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>작물</th><th>거래처</th><th>수량</th><th>단가</th><th>합계</th><th>출하일</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody id="shipmentTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 농작업 안전 -->
+    <section class="page" id="page-safety">
+      <div class="page-header"><h2>농작업 안전</h2></div>
+      <div class="grid-cards" id="safetyList"></div>
+    </section>
+
+    <!-- 사용자 관리 (관리자 전용) -->
+    <section class="page" id="page-admin">
+      <div class="page-header"><h2>사용자 관리</h2></div>
+      <div class="admin-dashboard-stats" id="adminDashboardStats"></div>
+      <div class="board-toolbar">
+        <div class="bulk-toolbar">
+          <label class="checkbox-inline"><input type="checkbox" id="userSelectAll"> 전체 선택</label>
+          <select id="bulkGradeSelect"></select>
+          <button class="btn btn-outline btn-sm" id="bulkSetGradeBtn">선택 등급 일괄 변경</button>
+          <button class="btn btn-outline btn-sm" id="bulkActivateBtn">일괄 활성화</button>
+          <button class="btn btn-outline btn-sm" id="bulkDeactivateBtn">일괄 비활성화</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th><input type="checkbox" id="userHeaderCheckbox"></th><th>이름</th><th>이메일</th><th>권한</th><th>등급</th><th>요금제</th><th>농장명</th><th>지역</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody id="adminUserTableBody"></tbody>
+        </table>
+      </div>
+      <h3 class="section-title">최근 관리자 활동 로그</h3>
+      <div class="timeline-list" id="adminActivityList"></div>
+    </section>
+
+    <!-- 요금제 (일반 사용자) -->
+    <section class="page" id="page-pricing">
+      <div class="page-header">
+        <h2>요금제</h2>
+        <div class="billing-toggle" id="billingToggle">
+          <button type="button" class="toggle-btn active" data-cycle="monthly">월간 결제</button>
+          <button type="button" class="toggle-btn" data-cycle="annual">연간 결제 <span class="badge badge-green">2개월 무료</span></button>
+        </div>
+      </div>
+      <div class="promo-box">
+        <input type="text" id="promoCodeInput" placeholder="프로모션 코드를 입력하세요">
+        <button class="btn btn-outline btn-sm" id="promoApplyBtn">코드 적용</button>
+        <span id="promoStatus" class="promo-status"></span>
+      </div>
+      <div class="pricing-grid" id="pricingGrid"></div>
+    </section>
+
+    <!-- 요금제 관리 (관리자 전용) -->
+    <section class="page" id="page-plans">
+      <div class="page-header">
+        <h2>요금제 관리</h2>
+        <button class="btn btn-primary" data-modal="planModal"><i data-lucide="plus"></i> 요금제 등록</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>순서</th><th>코드</th><th>이름</th><th>월간가격</th><th>연간가격</th><th>기능</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody id="planTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 등급 관리 (관리자 전용) -->
+    <section class="page" id="page-grades">
+      <div class="page-header">
+        <h2>등급 관리</h2>
+        <button class="btn btn-primary" data-modal="gradeModal"><i data-lucide="plus"></i> 등급 등록</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>순서</th><th>코드</th><th>이름</th><th>할인율</th><th>기준금액</th><th>설명</th><th>관리</th></tr></thead>
+          <tbody id="gradeTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 프로모션 코드 관리 (관리자 전용) -->
+    <section class="page" id="page-promos">
+      <div class="page-header">
+        <h2>프로모션 코드 관리</h2>
+        <button class="btn btn-primary" data-modal="promoModal"><i data-lucide="plus"></i> 코드 등록</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>코드</th><th>할인율</th><th>설명</th><th>사용/최대</th><th>만료일</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody id="promoTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 링크 관리 (관리자 전용) -->
+    <section class="page" id="page-linksAdmin">
+      <div class="page-header">
+        <h2>농업 링크 관리</h2>
+        <button class="btn btn-primary" data-modal="linkModal"><i data-lucide="plus"></i> 링크 등록</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>카테고리</th><th>제목</th><th>URL</th><th>설명</th><th>순서</th><th>관리</th></tr></thead>
+          <tbody id="linkAdminTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 모바일 하단 네비게이션 -->
+  <nav class="bottom-nav" id="bottomNav">
+    <a class="bnav-link active" data-page="dashboard"><i data-lucide="layout-dashboard"></i><span>홈</span></a>
+    <a class="bnav-link" data-page="crops"><i data-lucide="leaf"></i><span>작물</span></a>
+    <a class="bnav-link" data-page="journals"><i data-lucide="notebook-pen"></i><span>일지</span></a>
+    <a class="bnav-link" data-page="tasks"><i data-lucide="calendar-check"></i><span>일정</span></a>
+    <a class="bnav-link" data-page="more"><i data-lucide="menu"></i><span>더보기</span></a>
+  </nav>
+
+  <!-- 모바일 "더보기" 시트 -->
+  <div class="more-sheet" id="moreSheet">
+    <div class="more-sheet-backdrop" id="moreSheetBackdrop"></div>
+    <div class="more-sheet-panel">
+      <div class="more-sheet-handle"></div>
+      <div class="more-grid">
+        <a class="more-item" data-page="inventory"><i data-lucide="package"></i><span>재고 관리</span></a>
+        <a class="more-item" data-page="diagnosis"><i data-lucide="scan-eye"></i><span>AI 진단</span></a>
+        <a class="more-item" data-page="market"><i data-lucide="trending-up"></i><span>시세</span></a>
+        <a class="more-item" data-page="weather"><i data-lucide="cloud-sun"></i><span>날씨</span></a>
+        <a class="more-item" data-page="pesticide"><i data-lucide="flask-conical"></i><span>농약정보</span></a>
+        <a class="more-item" data-page="support"><i data-lucide="badge-percent"></i><span>지원사업</span></a>
+        <a class="more-item" data-page="rda"><i data-lucide="newspaper"></i><span>새소식</span></a>
+        <a class="more-item" data-page="community"><i data-lucide="users-round"></i><span>커뮤니티</span></a>
+        <a class="more-item" data-page="shipments"><i data-lucide="truck"></i><span>출하관리</span></a>
+        <a class="more-item" data-page="safety"><i data-lucide="shield-alert"></i><span>안전정보</span></a>
+        <a class="more-item" data-page="links"><i data-lucide="link"></i><span>농업링크</span></a>
+        <a class="more-item user-only" data-page="pricing"><i data-lucide="credit-card"></i><span>요금제</span></a>
+        <a class="more-item admin-only" style="display:none" data-page="admin"><i data-lucide="user-cog"></i><span>사용자관리</span></a>
+        <a class="more-item admin-only" style="display:none" data-page="plans"><i data-lucide="badge-dollar-sign"></i><span>요금제관리</span></a>
+        <a class="more-item admin-only" style="display:none" data-page="grades"><i data-lucide="award"></i><span>등급관리</span></a>
+        <a class="more-item admin-only" style="display:none" data-page="promos"><i data-lucide="ticket-percent"></i><span>프로모션</span></a>
+        <a class="more-item admin-only" style="display:none" data-page="linksAdmin"><i data-lucide="link-2"></i><span>링크관리</span></a>
+        <a class="more-item" id="moreLogoutBtn"><i data-lucide="log-out"></i><span>로그아웃</span></a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ 모달들 ============ -->
+
+<!-- 작물 등록/수정 모달 -->
+<div class="modal" id="cropModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="cropModalTitle">작물 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="cropForm" class="modal-body" enctype="multipart/form-data">
+      <input type="hidden" id="cropId">
+      <div class="form-group"><label>작물명 *</label><input type="text" id="cropName" required></div>
+      <div class="form-group"><label>품종</label><input type="text" id="cropVariety"></div>
+      <div class="form-group"><label>재배지 위치</label><input type="text" id="cropLocation"></div>
+      <div class="form-group"><label>면적(평)</label><input type="number" id="cropArea" step="0.1"></div>
+      <div class="form-row">
+        <div class="form-group"><label>파종/정식일</label><input type="date" id="cropPlantingDate"></div>
+        <div class="form-group"><label>수확 예정일</label><input type="date" id="cropHarvestDate"></div>
+      </div>
+      <div class="form-group"><label>상태</label>
+        <select id="cropStatus"><option value="재배중">재배중</option><option value="수확완료">수확완료</option><option value="휴경">휴경</option></select>
+      </div>
+      <div class="form-group"><label>메모</label><textarea id="cropMemo" rows="3"></textarea></div>
+      <div class="form-group"><label>사진</label><input type="file" id="cropImage" accept="image/*"></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 영농일지 모달 -->
+<div class="modal" id="journalModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="journalModalTitle">영농 일지 작성</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="journalForm" class="modal-body" enctype="multipart/form-data">
+      <input type="hidden" id="journalId">
+      <div class="form-group"><label>작물</label><select id="journalCropId"></select></div>
+      <div class="form-row">
+        <div class="form-group"><label>날짜 *</label><input type="date" id="journalDate" required></div>
+        <div class="form-group"><label>날씨</label>
+          <select id="journalWeather"><option>맑음</option><option>구름조금</option><option>흐림</option><option>비</option><option>소나기</option><option>눈</option></select>
+        </div>
+      </div>
+      <div class="form-group"><label>작업 유형</label>
+        <select id="journalWorkType"><option>파종</option><option>정식</option><option>방제</option><option>시비</option><option>관수</option><option>관찰</option><option>수확</option><option>기타</option></select>
+      </div>
+      <div class="form-group"><label>내용</label><textarea id="journalContent" rows="4"></textarea></div>
+      <div class="form-group"><label>사진</label><input type="file" id="journalImage" accept="image/*"></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 작업 일정 모달 -->
+<div class="modal" id="taskModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="taskModalTitle">작업 추가</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="taskForm" class="modal-body">
+      <input type="hidden" id="taskId">
+      <div class="form-group"><label>제목 *</label><input type="text" id="taskTitle" required></div>
+      <div class="form-group"><label>관련 작물</label><select id="taskCropId"></select></div>
+      <div class="form-row">
+        <div class="form-group"><label>마감일</label><input type="date" id="taskDueDate"></div>
+        <div class="form-group"><label>우선순위</label>
+          <select id="taskPriority"><option>높음</option><option selected>보통</option><option>낮음</option></select>
+        </div>
+      </div>
+      <div class="form-group"><label>상태</label>
+        <select id="taskStatus"><option>예정</option><option>진행중</option><option>완료</option></select>
+      </div>
+      <div class="form-group"><label>메모</label><textarea id="taskMemo" rows="3"></textarea></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 재고 모달 -->
+<div class="modal" id="inventoryModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="inventoryModalTitle">재고 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="inventoryForm" class="modal-body">
+      <input type="hidden" id="inventoryId">
+      <div class="form-group"><label>품목명 *</label><input type="text" id="invName" required></div>
+      <div class="form-group"><label>분류</label>
+        <select id="invCategory"><option>종자</option><option>비료</option><option>농약</option><option>농자재</option><option>기타</option></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>수량</label><input type="number" id="invQuantity" step="0.1"></div>
+        <div class="form-group"><label>단위</label><input type="text" id="invUnit" placeholder="kg, 병, 봉 등"></div>
+      </div>
+      <div class="form-group"><label>보관장소</label><input type="text" id="invLocation"></div>
+      <div class="form-group"><label>유효기한</label><input type="date" id="invExpiry"></div>
+      <div class="form-group"><label>메모</label><textarea id="invMemo" rows="2"></textarea></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 출하 모달 -->
+<div class="modal" id="shipmentModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="shipmentModalTitle">출하 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="shipmentForm" class="modal-body">
+      <input type="hidden" id="shipmentId">
+      <div class="form-group"><label>작물</label><select id="shipmentCropId"></select></div>
+      <div class="form-group"><label>거래처</label><input type="text" id="shipmentBuyer"></div>
+      <div class="form-row">
+        <div class="form-group"><label>수량</label><input type="number" id="shipmentQuantity" step="0.1"></div>
+        <div class="form-group"><label>단위</label><input type="text" id="shipmentUnit" placeholder="kg 등"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>단가(원)</label><input type="number" id="shipmentUnitPrice" step="1"></div>
+        <div class="form-group"><label>출하일</label><input type="date" id="shipmentDate"></div>
+      </div>
+      <div class="form-group"><label>상태</label>
+        <select id="shipmentStatus"><option>예정</option><option>출하완료</option><option>정산완료</option></select>
+      </div>
+      <div class="form-group"><label>메모</label><textarea id="shipmentMemo" rows="2"></textarea></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 커뮤니티 글쓰기 모달 -->
+<div class="modal" id="postModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3>커뮤니티 글쓰기</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="postForm" class="modal-body" enctype="multipart/form-data">
+      <div class="form-group"><label>카테고리</label>
+        <select id="postCategory"><option>자유</option><option>질문</option><option>판매</option><option>정보공유</option><option class="admin-only-option">공지</option></select>
+      </div>
+      <div class="form-group"><label>제목 *</label><input type="text" id="postTitle" required></div>
+      <div class="form-group"><label>내용</label><textarea id="postContent" rows="5"></textarea></div>
+      <div class="form-group"><label>사진</label><input type="file" id="postImage" accept="image/*"></div>
+      <div class="form-group checkbox-group admin-only" style="display:none">
+        <label><input type="checkbox" id="postIsPinned"> 상단 고정 (공지)</label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">등록</button>
+    </form>
+  </div>
+</div>
+
+<!-- 커뮤니티 게시글 상세 모달 -->
+<div class="modal" id="postDetailModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3>게시글 상세</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <div class="modal-body"></div>
+  </div>
+</div>
+
+<!-- 새소식 등록 모달 (관리자) -->
+<div class="modal" id="rdaModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3>새소식 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="rdaForm" class="modal-body">
+      <div class="form-group"><label>카테고리</label>
+        <select id="rdaCategory"><option>공지</option><option>영농정보</option><option>기상정보</option><option>교육안내</option><option>병해충정보</option></select>
+      </div>
+      <div class="form-group"><label>제목 *</label><input type="text" id="rdaTitle" required></div>
+      <div class="form-group"><label>날짜</label><input type="date" id="rdaDate"></div>
+      <div class="form-group"><label>내용</label><textarea id="rdaContent" rows="4"></textarea></div>
+      <div class="form-group"><label>출처 URL</label><input type="text" id="rdaSourceUrl"></div>
+      <button type="submit" class="btn btn-primary btn-block">등록</button>
+    </form>
+  </div>
+</div>
+
+<!-- 요금제 등록/수정 모달 (관리자) -->
+<div class="modal" id="planModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="planModalTitle">요금제 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="planForm" class="modal-body">
+      <input type="hidden" id="planId">
+      <div class="form-row">
+        <div class="form-group"><label>요금제 코드 *</label><input type="text" id="planCode" placeholder="예) starter" required></div>
+        <div class="form-group"><label>요금제 이름 *</label><input type="text" id="planName" placeholder="예) 스타터" required></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>월간 가격(원)</label><input type="number" id="planPriceMonthly" step="1000" value="0"></div>
+        <div class="form-group"><label>연간 가격(원)</label><input type="number" id="planPriceAnnual" step="1000" value="0"></div>
+      </div>
+      <div class="form-group"><label>표시 순서</label><input type="number" id="planDisplayOrder" value="0"></div>
+      <div class="form-group"><label>기능 목록 (줄바꿈으로 구분)</label><textarea id="planFeatures" rows="5" placeholder="작물 5개까지 등록&#10;영농 일지 무제한 작성"></textarea></div>
+      <div class="form-group checkbox-group">
+        <label><input type="checkbox" id="planIsActive" checked> 활성화 (사용자에게 노출)</label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 사용자 요금제 변경 모달 (관리자) -->
+<div class="modal" id="userPlanModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="userPlanModalTitle">사용자 요금제 변경</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="userPlanForm" class="modal-body">
+      <input type="hidden" id="userPlanUserId">
+      <div class="form-group"><label>요금제</label>
+        <select id="userPlanPlanId"></select>
+      </div>
+      <div class="form-group"><label>결제 주기</label>
+        <select id="userPlanBillingCycle"><option value="monthly">월간</option><option value="annual">연간</option></select>
+      </div>
+      <div class="form-group"><label>상태</label>
+        <select id="userPlanStatus"><option value="active">활성</option><option value="cancelled">해지</option><option value="expired">만료</option></select>
+      </div>
+      <div class="form-group"><label>만료일</label><input type="date" id="userPlanExpiryDate"></div>
+      <div class="form-group checkbox-group">
+        <label><input type="checkbox" id="userPlanIsWaived"> 요금제 이용료 면제 처리</label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">변경 저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 등급 등록/수정 모달 (관리자) -->
+<div class="modal" id="gradeModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="gradeModalTitle">등급 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="gradeForm" class="modal-body">
+      <input type="hidden" id="gradeId">
+      <div class="form-row">
+        <div class="form-group"><label>등급 코드 *</label><input type="text" id="gradeCode" placeholder="예) vip" required></div>
+        <div class="form-group"><label>등급 이름 *</label><input type="text" id="gradeName" placeholder="예) VIP" required></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>할인율(%)</label><input type="number" id="gradeDiscountPercent" value="0" min="0" max="100"></div>
+        <div class="form-group"><label>산정 기준금액(원)</label><input type="number" id="gradeMinSpend" value="0" step="10000"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>표시 색상</label><input type="color" id="gradeColor" value="#4caf7d"></div>
+        <div class="form-group"><label>표시 순서</label><input type="number" id="gradeDisplayOrder" value="0"></div>
+      </div>
+      <div class="form-group"><label>설명</label><textarea id="gradeDescription" rows="3"></textarea></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 프로모션 코드 등록/수정 모달 (관리자) -->
+<div class="modal" id="promoModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="promoModalTitle">프로모션 코드 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="promoForm" class="modal-body">
+      <input type="hidden" id="promoId">
+      <div class="form-group"><label>코드 *</label><input type="text" id="promoCode" placeholder="예) WELCOME2026" required></div>
+      <div class="form-row">
+        <div class="form-group"><label>할인율(%)</label><input type="number" id="promoDiscountPercent" value="0" min="0" max="100"></div>
+        <div class="form-group"><label>최대 사용횟수 (0=무제한)</label><input type="number" id="promoMaxUses" value="0"></div>
+      </div>
+      <div class="form-group"><label>만료일</label><input type="date" id="promoExpiryDate"></div>
+      <div class="form-group"><label>설명</label><textarea id="promoDescription" rows="2"></textarea></div>
+      <div class="form-group checkbox-group">
+        <label><input type="checkbox" id="promoIsActive" checked> 활성화</label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<!-- 링크 등록/수정 모달 (관리자) -->
+<div class="modal" id="linkModal">
+  <div class="modal-panel">
+    <div class="modal-header"><h3 id="linkModalTitle">링크 등록</h3><button class="icon-btn modal-close"><i data-lucide="x"></i></button></div>
+    <form id="linkForm" class="modal-body">
+      <input type="hidden" id="linkId">
+      <div class="form-group"><label>제목 *</label><input type="text" id="linkTitle" required></div>
+      <div class="form-group"><label>URL *</label><input type="text" id="linkUrl" placeholder="https://" required></div>
+      <div class="form-group"><label>카테고리</label>
+        <select id="linkCategory"><option>공공기관</option><option>시세정보</option><option>금융/보험</option><option>기상정보</option><option>기술정보</option><option>기타</option></select>
+      </div>
+      <div class="form-group"><label>설명</label><textarea id="linkDescription" rows="2"></textarea></div>
+      <div class="form-group"><label>표시 순서</label><input type="number" id="linkDisplayOrder" value="0"></div>
+      <button type="submit" class="btn btn-primary btn-block">저장</button>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
