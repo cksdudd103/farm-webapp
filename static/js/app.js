@@ -100,6 +100,66 @@
       }
     });
 
+    function showAuthForm(name) {
+      $all(".auth-form").forEach(function (f) { f.classList.add("hidden"); });
+      $("#" + name + "Form").classList.remove("hidden");
+    }
+    $("#showFindIdBtn").addEventListener("click", function (e) {
+      e.preventDefault();
+      showAuthForm("findId");
+    });
+    $("#showFindPwBtn").addEventListener("click", function (e) {
+      e.preventDefault();
+      showAuthForm("findPw");
+    });
+    $all(".auth-back-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        showAuthForm(btn.getAttribute("data-back"));
+      });
+    });
+
+    $("#findIdForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      var errBox = $("#findIdError");
+      var resultBox = $("#findIdResult");
+      errBox.textContent = "";
+      resultBox.classList.add("hidden");
+      try {
+        var res = await api("/api/find-id", {
+          method: "POST",
+          body: { name: $("#findIdName").value, phone: $("#findIdPhone").value }
+        });
+        resultBox.textContent = "회원님의 아이디는 " + res.email + " 입니다.";
+        resultBox.classList.remove("hidden");
+      } catch (err) {
+        errBox.textContent = err.message;
+      }
+    });
+
+    $("#findPwForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      var errBox = $("#findPwError");
+      var resultBox = $("#findPwResult");
+      errBox.textContent = "";
+      resultBox.classList.add("hidden");
+      try {
+        var res = await api("/api/reset-password", {
+          method: "POST",
+          body: {
+            name: $("#findPwName").value,
+            email: $("#findPwEmail").value,
+            phone: $("#findPwPhone").value,
+            new_password: $("#findPwNewPassword").value
+          }
+        });
+        resultBox.textContent = res.msg + " 로그인 화면에서 새 비밀번호로 로그인해주세요.";
+        resultBox.classList.remove("hidden");
+        $("#findPwForm").reset();
+      } catch (err) {
+        errBox.textContent = err.message;
+      }
+    });
+
   }
 
   // =============================================================

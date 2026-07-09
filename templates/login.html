@@ -36,6 +36,51 @@
         </div>
         <div id="loginError" class="form-error"></div>
         <button type="submit" class="btn btn-primary btn-block">로그인</button>
+        <div class="auth-links">
+          <a href="#" id="showFindIdBtn">아이디 찾기</a>
+          <span>|</span>
+          <a href="#" id="showFindPwBtn">비밀번호 찾기</a>
+        </div>
+      </form>
+
+      <form id="findIdForm" class="auth-form hidden">
+        <p class="auth-form-desc">가입 시 등록한 이름과 연락처를 입력해주세요.</p>
+        <div class="form-group">
+          <label>이름</label>
+          <input type="text" id="findIdName" placeholder="홍길동" required>
+        </div>
+        <div class="form-group">
+          <label>연락처</label>
+          <input type="text" id="findIdPhone" placeholder="010-0000-0000" required>
+        </div>
+        <div id="findIdError" class="form-error"></div>
+        <div id="findIdResult" class="form-success hidden"></div>
+        <button type="submit" class="btn btn-primary btn-block">아이디 찾기</button>
+        <button type="button" class="btn btn-outline btn-block auth-back-btn" data-back="login">로그인으로 돌아가기</button>
+      </form>
+
+      <form id="findPwForm" class="auth-form hidden">
+        <p class="auth-form-desc">가입 시 등록한 정보와 새 비밀번호를 입력해주세요.</p>
+        <div class="form-group">
+          <label>이름</label>
+          <input type="text" id="findPwName" placeholder="홍길동" required>
+        </div>
+        <div class="form-group">
+          <label>이메일</label>
+          <input type="email" id="findPwEmail" placeholder="example@farm.com" required>
+        </div>
+        <div class="form-group">
+          <label>연락처</label>
+          <input type="text" id="findPwPhone" placeholder="010-0000-0000" required>
+        </div>
+        <div class="form-group">
+          <label>새 비밀번호</label>
+          <input type="password" id="findPwNewPassword" placeholder="6자 이상" required>
+        </div>
+        <div id="findPwError" class="form-error"></div>
+        <div id="findPwResult" class="form-success hidden"></div>
+        <button type="submit" class="btn btn-primary btn-block">비밀번호 재설정</button>
+        <button type="button" class="btn btn-outline btn-block auth-back-btn" data-back="login">로그인으로 돌아가기</button>
       </form>
 
       <form id="registerForm" class="auth-form hidden">

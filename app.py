@@ -592,6 +592,49 @@ def api_register():
     return jsonify({"ok": True, "user": u.to_dict()})
 
 
+@app.route("/api/find-id", methods=["POST"])
+def api_find_id():
+    data = json_body()
+    name = data.get("name", "").strip()
+    phone = data.get("phone", "").strip()
+    if not name or not phone:
+        return jsonify({"ok": False, "msg": "이름과 연락처를 입력해주세요."}), 400
+
+    u = User.query.filter_by(name=name, phone=phone).first()
+    if not u:
+        return jsonify({"ok": False, "msg": "일치하는 회원 정보를 찾을 수 없습니다."}), 404
+
+    local, _, domain = u.email.partition("@")
+    if len(local) > 2:
+        masked = local[:2] + "*" * (len(local) - 2)
+    else:
+        masked = local[:1] + "*" * (len(local) - 1)
+    masked_email = f"{masked}@{domain}"
+    return jsonify({"ok": True, "email": masked_email})
+
+
+@app.route("/api/reset-password", methods=["POST"])
+def api_reset_password():
+    data = json_body()
+    name = data.get("name", "").strip()
+    email = data.get("email", "").strip().lower()
+    phone = data.get("phone", "").strip()
+    new_password = data.get("new_password", "")
+
+    if not name or not email or not phone or not new_password:
+        return jsonify({"ok": False, "msg": "모든 항목을 입력해주세요."}), 400
+    if len(new_password) < 6:
+        return jsonify({"ok": False, "msg": "비밀번호는 6자 이상이어야 합니다."}), 400
+
+    u = User.query.filter_by(name=name, email=email, phone=phone).first()
+    if not u:
+        return jsonify({"ok": False, "msg": "일치하는 회원 정보를 찾을 수 없습니다."}), 404
+
+    u.set_password(new_password)
+    db.session.commit()
+    return jsonify({"ok": True, "msg": "비밀번호가 재설정되었습니다."})
+
+
 @app.route("/api/login", methods=["POST"])
 def api_login():
     data = json_body()
