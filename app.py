@@ -25,7 +25,7 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "smart-farm-secret-key-change-in-production"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "smart-farm-secret-key-change-in-production")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(BASE_DIR, "farm.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -2143,4 +2143,5 @@ with app.app_context():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
