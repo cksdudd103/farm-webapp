@@ -100,22 +100,6 @@
       }
     });
 
-    $("#demoAdminBtn").addEventListener("click", async function () {
-      $("#loginEmail").value = "cksdudd102@naver.com";
-      $("#loginPassword").value = "1q2w3e4r~@";
-      try {
-        await api("/api/login", { method: "POST", body: { email: "cksdudd102@naver.com", password: "1q2w3e4r~@" } });
-        window.location.href = "/app";
-      } catch (err) { $("#loginError").textContent = err.message; }
-    });
-    $("#demoFarmerBtn").addEventListener("click", async function () {
-      $("#loginEmail").value = "farmer@farm.com";
-      $("#loginPassword").value = "farm1234";
-      try {
-        await api("/api/login", { method: "POST", body: { email: "farmer@farm.com", password: "farm1234" } });
-        window.location.href = "/app";
-      } catch (err) { $("#loginError").textContent = err.message; }
-    });
   }
 
   // =============================================================
