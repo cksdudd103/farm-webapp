@@ -458,6 +458,27 @@ class RdaNotice(db.Model):
         }
 
 
+class MarketPriceRecord(db.Model):
+    __tablename__ = "market_price_records"
+    id = db.Column(db.Integer, primary_key=True)
+    regday = db.Column(db.String(10), nullable=False, index=True)  # YYYY-MM-DD
+    name = db.Column(db.String(40), nullable=False)
+    unit = db.Column(db.String(20))
+    price = db.Column(db.Integer)
+    change_pct = db.Column(db.Float, default=0.0)
+    trend = db.Column(db.String(10), default="flat")
+    source = db.Column(db.String(10), default="kamis")  # kamis | mock
+    fetched_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("regday", "name", name="uq_market_regday_name"),)
+
+    def to_dict(self):
+        return {
+            "name": self.name, "unit": self.unit, "price": self.price,
+            "change_pct": self.change_pct, "trend": self.trend, "source": self.source,
+        }
+
+
 class Payment(db.Model):
     __tablename__ = "payments"
     id = db.Column(db.Integer, primary_key=True)
@@ -1997,7 +2018,6 @@ KAMIS_CERT_KEY = os.environ.get("KAMIS_CERT_KEY", "")
 KAMIS_CERT_ID = os.environ.get("KAMIS_CERT_ID", "")
 KAMIS_URL = "http://www.kamis.or.kr/service/price/xml.do"
 
-_market_cache = {}  # regday(str) -> {"data": [...], "fetched_at": datetime}
 MARKET_MIN_DATE = date(2020, 1, 1)
 
 
@@ -2026,7 +2046,7 @@ def fetch_kamis_prices(regday):
     wanted = {it["name"]: it for it in MARKET_ITEMS}
     found = {}
     try:
-        for category_code in ("100", "200", "400"):  # 식량작물/채소류/과일류
+        for category_code in ("100", "200", "300", "400", "500"):  # 식량작물/채소류/특용작물/과일류/기타
             resp = requests.get(KAMIS_URL, params={
                 "action": "dailyPriceByCategoryList",
                 "p_cert_key": KAMIS_CERT_KEY,
@@ -2085,17 +2105,53 @@ def api_market():
         regday_obj = today
     regday = regday_obj.isoformat()
 
-    cached = _market_cache.get(regday)
     is_today = regday == today.isoformat()
-    stale = (cached is None or
-             (is_today and (datetime.utcnow() - cached["fetched_at"]).total_seconds() > 3600))
+    records = MarketPriceRecord.query.filter_by(regday=regday).all()
+    stale = (
+        not records
+        or (is_today and records and (datetime.utcnow() - records[0].fetched_at).total_seconds() > 3600)
+    )
     if stale:
         data = fetch_kamis_prices(regday)
         if data is None:
             data = _mock_market_data(regday)
-        _market_cache[regday] = {"data": data, "fetched_at": datetime.utcnow()}
-        cached = _market_cache[regday]
-    return jsonify({"ok": True, "data": cached["data"], "date": regday})
+        for item in data:
+            row = MarketPriceRecord.query.filter_by(regday=regday, name=item["name"]).first()
+            if row is None:
+                row = MarketPriceRecord(regday=regday, name=item["name"])
+                db.session.add(row)
+            row.unit = item["unit"]
+            row.price = item["price"]
+            row.change_pct = item["change_pct"]
+            row.trend = item["trend"]
+            row.source = item["source"]
+            row.fetched_at = datetime.utcnow()
+        db.session.commit()
+        records = MarketPriceRecord.query.filter_by(regday=regday).all()
+
+    order = {it["name"]: idx for idx, it in enumerate(MARKET_ITEMS)}
+    records.sort(key=lambda r: order.get(r.name, 999))
+    return jsonify({"ok": True, "data": [r.to_dict() for r in records], "date": regday})
+
+
+@app.route("/api/market/history", methods=["GET"])
+@login_required
+def api_market_history():
+    """특정 품목의 최근 N일(기본 30일) 가격 히스토리를 반환한다."""
+    name = request.args.get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "msg": "name 파라미터가 필요합니다."}), 400
+    days = min(int(request.args.get("days", 30) or 30), 365)
+    rows = (
+        MarketPriceRecord.query.filter_by(name=name)
+        .order_by(MarketPriceRecord.regday.desc())
+        .limit(days)
+        .all()
+    )
+    rows.sort(key=lambda r: r.regday)
+    return jsonify({"ok": True, "name": name, "data": [
+        {"date": r.regday, "price": r.price, "change_pct": r.change_pct, "source": r.source} for r in rows
+    ]})
 
 
 # ----------------------------------------------------------------------
