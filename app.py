@@ -10,6 +10,8 @@ import string
 import uuid
 from datetime import datetime, date, timedelta
 
+import requests
+from bs4 import BeautifulSoup
 from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -38,6 +40,15 @@ app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8MB
+
+# 프론트엔드(farm-android-pymx.onrender.com)와 백엔드(farm-webapp-rezy.onrender.com)가
+# 서로 다른 오리진의 HTTPS 서비스이므로, 세션 쿠키가 cross-site 요청에도 전달되도록 설정
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
+app.config["REMEMBER_COOKIE_SECURE"] = True
+
+ADMIN_SIGNUP_CODE = os.environ.get("ADMIN_SIGNUP_CODE", "영농102")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -575,6 +586,7 @@ def api_register():
     phone = data.get("phone", "").strip()
     farm_name = data.get("farm_name", "").strip()
     region = data.get("region", "").strip()
+    admin_code = (data.get("admin_code") or "").strip()
 
     if not name or not email or not password:
         return jsonify({"ok": False, "msg": "이름, 이메일, 비밀번호는 필수입니다."}), 400
@@ -583,8 +595,10 @@ def api_register():
     if User.query.filter_by(email=email).first():
         return jsonify({"ok": False, "msg": "이미 등록된 이메일입니다."}), 400
 
+    role = "admin" if admin_code and admin_code == ADMIN_SIGNUP_CODE else "farmer"
+
     u = User(name=name, email=email, phone=phone, farm_name=farm_name,
-             region=region, role="farmer")
+             region=region, role=role, is_active_user=True)
     u.set_password(password)
     db.session.add(u)
     db.session.commit()
@@ -661,6 +675,21 @@ def api_me():
     if current_user.is_authenticated:
         return jsonify({"ok": True, "user": current_user.to_dict()})
     return jsonify({"ok": False}), 401
+
+
+@app.route("/api/me", methods=["PUT"])
+@login_required
+def api_me_update():
+    data = json_body()
+    for field in ["name", "phone", "farm_name", "region"]:
+        if field in data:
+            setattr(current_user, field, data.get(field))
+    if data.get("password"):
+        if len(data.get("password")) < 6:
+            return jsonify({"ok": False, "msg": "비밀번호는 6자 이상이어야 합니다."}), 400
+        current_user.set_password(data.get("password"))
+    db.session.commit()
+    return jsonify({"ok": True, "user": current_user.to_dict()})
 
 
 # ----------------------------------------------------------------------
@@ -1672,11 +1701,73 @@ def api_diagnoses_delete(did):
 # ----------------------------------------------------------------------
 # 농업진흥청 새소식 (RDA Notices)
 # ----------------------------------------------------------------------
+RDA_NOTICE_URL = "https://www.rda.go.kr/board/board.do?mode=list&prgId=nei_ancmttEntry"
+_rda_last_scraped_at = None
+
+
+def scrape_rda_notices():
+    """농촌진흥청 공지사항 게시판을 스크래핑하여 RdaNotice 테이블에 upsert 한다."""
+    global _rda_last_scraped_at
+    try:
+        resp = requests.get(RDA_NOTICE_URL, timeout=10,
+                             headers={"User-Agent": "Mozilla/5.0"})
+        resp.encoding = resp.apparent_encoding
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.select_one("table.tbl.data")
+        if not table:
+            return 0
+        rows = table.select("tbody tr")
+        added = 0
+        for row in rows:
+            a = row.select_one("td[aria-label='제목'] a")
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            href = a.get("href") or ""
+            date_td = row.select_one("td[aria-label='작성일']")
+            notice_date = date_td.get_text(strip=True) if date_td else date.today().isoformat()
+            source_url = "https://www.rda.go.kr" + href if href.startswith("/") else href
+            exists = RdaNotice.query.filter_by(title=title, notice_date=notice_date).first()
+            if exists:
+                continue
+            n = RdaNotice(
+                title=title,
+                content=None,
+                category="공지",
+                notice_date=notice_date,
+                source_url=source_url,
+            )
+            db.session.add(n)
+            added += 1
+        if added:
+            db.session.commit()
+        _rda_last_scraped_at = datetime.utcnow()
+        return added
+    except Exception as e:
+        print(f"[RDA scrape error] {e}")
+        return 0
+
+
 @app.route("/api/rda", methods=["GET"])
 @login_required
 def api_rda_list():
+    global _rda_last_scraped_at
+    stale = (_rda_last_scraped_at is None or
+             (datetime.utcnow() - _rda_last_scraped_at).total_seconds() > 6 * 3600)
+    if stale:
+        scrape_rda_notices()
     items = RdaNotice.query.order_by(RdaNotice.notice_date.desc()).all()
     return jsonify({"ok": True, "data": [n.to_dict() for n in items]})
+
+
+@app.route("/api/rda/refresh", methods=["POST"])
+@login_required
+def api_rda_refresh():
+    if not is_admin():
+        return jsonify({"ok": False, "msg": "권한이 없습니다."}), 403
+    added = scrape_rda_notices()
+    items = RdaNotice.query.order_by(RdaNotice.notice_date.desc()).all()
+    return jsonify({"ok": True, "added": added, "data": [n.to_dict() for n in items]})
 
 
 @app.route("/api/rda", methods=["POST"])
