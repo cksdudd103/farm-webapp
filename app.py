@@ -763,8 +763,28 @@ def api_users_delete(uid):
     if uid == current_user.id:
         return jsonify({"ok": False, "msg": "본인 계정은 삭제할 수 없습니다."}), 400
     u = User.query.get_or_404(uid)
+
+    # Remove all related records first to avoid FK constraint violations.
+    UserSubscription.query.filter_by(user_id=uid).delete()
+    PlanChangeLog.query.filter_by(user_id=uid).delete()
+    Crop.query.filter_by(user_id=uid).delete()
+    Journal.query.filter_by(user_id=uid).delete()
+    Task.query.filter_by(user_id=uid).delete()
+    Inventory.query.filter_by(user_id=uid).delete()
+    Shipment.query.filter_by(user_id=uid).delete()
+    Post.query.filter_by(user_id=uid).delete()
+    Diagnosis.query.filter_by(user_id=uid).delete()
+    AdminActivityLog.query.filter_by(admin_id=uid).delete()
+    AdminActivityLog.query.filter(AdminActivityLog.target_user_id == uid).update(
+        {AdminActivityLog.target_user_id: None}
+    )
+
     db.session.delete(u)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"ok": False, "msg": f"삭제 중 오류가 발생했습니다: {e}"}), 500
     return jsonify({"ok": True})
 
 
