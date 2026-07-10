@@ -314,6 +314,7 @@ class Crop(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
+        owner = db.session.get(User, self.user_id)
         return {
             "id": self.id, "user_id": self.user_id, "name": self.name,
             "variety": self.variety, "field_location": self.field_location,
