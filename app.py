@@ -2642,6 +2642,22 @@ def seed_data():
 # ----------------------------------------------------------------------
 with app.app_context():
     db.create_all()
+
+    def _ensure_column(table, column, ddl):
+        try:
+            existing = {c["name"] for c in db.inspect(db.engine).get_columns(table)}
+            if column not in existing:
+                db.session.execute(db.text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                db.session.commit()
+                print(f">> {table}.{column} 컬럼 추가 완료")
+        except Exception as e:
+            db.session.rollback()
+            print(f">> 컬럼 마이그레이션 실패 ({table}.{column}): {e}")
+
+    _ensure_column("crops", "is_public", "BOOLEAN DEFAULT FALSE NOT NULL")
+    _ensure_column("journals", "is_public", "BOOLEAN DEFAULT FALSE NOT NULL")
+    _ensure_column("tasks", "is_public", "BOOLEAN DEFAULT FALSE NOT NULL")
+
     seed_data()
 
 
