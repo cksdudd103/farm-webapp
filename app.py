@@ -285,15 +285,19 @@ class Crop(db.Model):
     status = db.Column(db.String(20), default="재배중")  # 재배중/수확완료/휴경
     memo = db.Column(db.Text)
     image = db.Column(db.String(255))
+    is_public = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
+        owner = db.session.get(User, self.user_id)
         return {
             "id": self.id, "user_id": self.user_id, "name": self.name,
             "variety": self.variety, "field_location": self.field_location,
             "area": self.area, "planting_date": self.planting_date,
             "expected_harvest_date": self.expected_harvest_date,
             "status": self.status, "memo": self.memo, "image": self.image,
+            "is_public": self.is_public,
+            "owner_name": owner.name if owner else None,
             "created_at": self.created_at.strftime("%Y-%m-%d") if self.created_at else None
         }
 
@@ -308,15 +312,19 @@ class Journal(db.Model):
     weather = db.Column(db.String(40))
     content = db.Column(db.Text)
     image = db.Column(db.String(255))
+    is_public = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         crop = db.session.get(Crop, self.crop_id) if self.crop_id else None
+        owner = db.session.get(User, self.user_id)
         return {
             "id": self.id, "user_id": self.user_id, "crop_id": self.crop_id,
             "crop_name": crop.name if crop else None,
             "date": self.date, "work_type": self.work_type, "weather": self.weather,
             "content": self.content, "image": self.image,
+            "is_public": self.is_public,
+            "owner_name": owner.name if owner else None,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None
         }
 
@@ -331,15 +339,19 @@ class Task(db.Model):
     due_date = db.Column(db.String(20))
     priority = db.Column(db.String(10), default="보통")  # 높음/보통/낮음
     status = db.Column(db.String(20), default="예정")  # 예정/진행중/완료
+    is_public = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         crop = db.session.get(Crop, self.crop_id) if self.crop_id else None
+        owner = db.session.get(User, self.user_id)
         return {
             "id": self.id, "user_id": self.user_id, "crop_id": self.crop_id,
             "crop_name": crop.name if crop else None,
             "title": self.title, "memo": self.memo, "due_date": self.due_date,
             "priority": self.priority, "status": self.status,
+            "is_public": self.is_public,
+            "owner_name": owner.name if owner else None,
             "created_at": self.created_at.strftime("%Y-%m-%d") if self.created_at else None
         }
 
@@ -1445,13 +1457,31 @@ def owned_query(model):
     return q
 
 
+def owned_or_shared_query(model):
+    """본인 데이터 전체 + 다른 회원이 '공개'로 등록한 데이터. 관리자는 전체 조회."""
+    if is_admin():
+        return model.query
+    return model.query.filter(
+        db.or_(model.user_id == current_user.id, model.is_public.is_(True))
+    )
+
+
+def parse_is_public(data):
+    val = data.get("is_public")
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("true", "1", "on", "yes", "공개")
+
+
 # ----------------------------------------------------------------------
 # 작물 관리 (Crops)
 # ----------------------------------------------------------------------
 @app.route("/api/crops", methods=["GET"])
 @login_required
 def api_crops_list():
-    items = owned_query(Crop).order_by(Crop.created_at.desc()).all()
+    items = owned_or_shared_query(Crop).order_by(Crop.created_at.desc()).all()
     return jsonify({"ok": True, "data": [c.to_dict() for c in items]})
 
 
@@ -1471,6 +1501,7 @@ def api_crops_create():
         status=data.get("status", "재배중"),
         memo=data.get("memo"),
         image=image_path,
+        is_public=parse_is_public(data) or False,
     )
     db.session.add(c)
     db.session.commit()
@@ -1494,6 +1525,9 @@ def api_crops_update(cid):
             setattr(c, field, data.get(field))
     if "area" in data and data.get("area"):
         c.area = float(data.get("area"))
+    pub = parse_is_public(data)
+    if pub is not None:
+        c.is_public = pub
     db.session.commit()
     return jsonify({"ok": True, "data": c.to_dict()})
 
@@ -1515,7 +1549,7 @@ def api_crops_delete(cid):
 @app.route("/api/journals", methods=["GET"])
 @login_required
 def api_journals_list():
-    items = owned_query(Journal).order_by(Journal.date.desc()).all()
+    items = owned_or_shared_query(Journal).order_by(Journal.date.desc()).all()
     return jsonify({"ok": True, "data": [j.to_dict() for j in items]})
 
 
@@ -1532,6 +1566,7 @@ def api_journals_create():
         weather=data.get("weather"),
         content=data.get("content"),
         image=image_path,
+        is_public=parse_is_public(data) or False,
     )
     db.session.add(j)
     db.session.commit()
@@ -1554,6 +1589,9 @@ def api_journals_update(jid):
             setattr(j, field, data.get(field))
     if "crop_id" in data:
         j.crop_id = int(data.get("crop_id")) if data.get("crop_id") else None
+    pub = parse_is_public(data)
+    if pub is not None:
+        j.is_public = pub
     db.session.commit()
     return jsonify({"ok": True, "data": j.to_dict()})
 
@@ -1575,7 +1613,7 @@ def api_journals_delete(jid):
 @app.route("/api/tasks", methods=["GET"])
 @login_required
 def api_tasks_list():
-    items = owned_query(Task).order_by(Task.due_date.asc()).all()
+    items = owned_or_shared_query(Task).order_by(Task.due_date.asc()).all()
     return jsonify({"ok": True, "data": [t.to_dict() for t in items]})
 
 
@@ -1591,6 +1629,7 @@ def api_tasks_create():
         due_date=data.get("due_date"),
         priority=data.get("priority", "보통"),
         status=data.get("status", "예정"),
+        is_public=parse_is_public(data) or False,
     )
     db.session.add(t)
     db.session.commit()
@@ -1609,6 +1648,9 @@ def api_tasks_update(tid):
             setattr(t, field, data.get(field))
     if "crop_id" in data:
         t.crop_id = int(data.get("crop_id")) if data.get("crop_id") else None
+    pub = parse_is_public(data)
+    if pub is not None:
+        t.is_public = pub
     db.session.commit()
     return jsonify({"ok": True, "data": t.to_dict()})
 
