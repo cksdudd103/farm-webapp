@@ -1821,11 +1821,12 @@ KAMIS_CERT_KEY = os.environ.get("KAMIS_CERT_KEY", "")
 KAMIS_CERT_ID = os.environ.get("KAMIS_CERT_ID", "")
 KAMIS_URL = "http://www.kamis.or.kr/service/price/xml.do"
 
-_market_cache = {"data": None, "date": None, "fetched_at": None}
+_market_cache = {}  # regday(str) -> {"data": [...], "fetched_at": datetime}
+MARKET_MIN_DATE = date(2020, 1, 1)
 
 
-def _mock_market_data():
-    random.seed(date.today().toordinal())
+def _mock_market_data(regday):
+    random.seed(date.fromisoformat(regday).toordinal())
     data = []
     for item in MARKET_ITEMS:
         change_pct = round(random.uniform(-8.0, 8.0), 1)
@@ -1840,9 +1841,10 @@ def _mock_market_data():
     return data
 
 
-def fetch_kamis_prices():
-    """KAMIS Open API(dailyPriceByCategoryList)로 식량작물/채소류/과일류 소매가격을 조회해
-    MARKET_ITEMS 이름과 매칭되는 실제 시세 데이터를 반환한다. 실패 시 None."""
+def fetch_kamis_prices(regday):
+    """KAMIS Open API(dailyPriceByCategoryList)로 지정한 날짜(regday, YYYY-MM-DD)의
+    식량작물/채소류/과일류 소매가격을 조회해 MARKET_ITEMS 이름과 매칭되는 실제 시세를 반환한다.
+    실패 시 None."""
     if not KAMIS_CERT_KEY or not KAMIS_CERT_ID:
         return None
     wanted = {it["name"]: it for it in MARKET_ITEMS}
@@ -1856,6 +1858,7 @@ def fetch_kamis_prices():
                 "p_returntype": "json",
                 "p_product_cls_code": "01",  # 소매
                 "p_item_category_code": category_code,
+                "p_regday": regday,
                 "p_convert_kg_yn": "N",
             }, timeout=8)
             payload = resp.json()
@@ -1881,7 +1884,7 @@ def fetch_kamis_prices():
         if not found:
             return None
         # 매칭 안 된 품목은 기존 순서 유지를 위해 모의 데이터로 보충
-        mock_by_name = {m["name"]: m for m in _mock_market_data()}
+        mock_by_name = {m["name"]: m for m in _mock_market_data(regday)}
         return [found.get(it["name"], mock_by_name[it["name"]]) for it in MARKET_ITEMS]
     except Exception as e:
         print(f"[KAMIS fetch error] {e}")
@@ -1891,17 +1894,32 @@ def fetch_kamis_prices():
 @app.route("/api/market", methods=["GET"])
 @login_required
 def api_market():
-    today = date.today().isoformat()
-    stale = (_market_cache["date"] != today or _market_cache["fetched_at"] is None or
-             (datetime.utcnow() - _market_cache["fetched_at"]).total_seconds() > 3600)
+    today = date.today()
+    req_date = request.args.get("date", "").strip()
+    if req_date:
+        try:
+            regday_obj = date.fromisoformat(req_date)
+        except ValueError:
+            return jsonify({"ok": False, "msg": "날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)"}), 400
+        if regday_obj > today:
+            return jsonify({"ok": False, "msg": "오늘 이후 날짜는 조회할 수 없습니다."}), 400
+        if regday_obj < MARKET_MIN_DATE:
+            return jsonify({"ok": False, "msg": "조회 가능한 최소 날짜는 2020-01-01 입니다."}), 400
+    else:
+        regday_obj = today
+    regday = regday_obj.isoformat()
+
+    cached = _market_cache.get(regday)
+    is_today = regday == today.isoformat()
+    stale = (cached is None or
+             (is_today and (datetime.utcnow() - cached["fetched_at"]).total_seconds() > 3600))
     if stale:
-        data = fetch_kamis_prices()
+        data = fetch_kamis_prices(regday)
         if data is None:
-            data = _mock_market_data()
-        _market_cache["data"] = data
-        _market_cache["date"] = today
-        _market_cache["fetched_at"] = datetime.utcnow()
-    return jsonify({"ok": True, "data": _market_cache["data"], "date": today})
+            data = _mock_market_data(regday)
+        _market_cache[regday] = {"data": data, "fetched_at": datetime.utcnow()}
+        cached = _market_cache[regday]
+    return jsonify({"ok": True, "data": cached["data"], "date": regday})
 
 
 # ----------------------------------------------------------------------
