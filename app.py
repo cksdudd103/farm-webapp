@@ -1800,7 +1800,7 @@ def api_rda_delete(nid):
 
 
 # ----------------------------------------------------------------------
-# 농산물 시세 (Market Prices) - 모의 데이터
+# 농산물 시세 (Market Prices) - KAMIS Open API 실시간 연동 (키 없으면 모의 데이터로 폴백)
 # ----------------------------------------------------------------------
 MARKET_ITEMS = [
     {"name": "배추", "unit": "포기", "base": 3200},
@@ -1817,10 +1817,14 @@ MARKET_ITEMS = [
     {"name": "고추(건)", "unit": "kg", "base": 22000},
 ]
 
+KAMIS_CERT_KEY = os.environ.get("KAMIS_CERT_KEY", "")
+KAMIS_CERT_ID = os.environ.get("KAMIS_CERT_ID", "")
+KAMIS_URL = "http://www.kamis.or.kr/service/price/xml.do"
 
-@app.route("/api/market", methods=["GET"])
-@login_required
-def api_market():
+_market_cache = {"data": None, "date": None, "fetched_at": None}
+
+
+def _mock_market_data():
     random.seed(date.today().toordinal())
     data = []
     for item in MARKET_ITEMS:
@@ -1830,9 +1834,74 @@ def api_market():
             "name": item["name"], "unit": item["unit"],
             "price": price, "change_pct": change_pct,
             "trend": "up" if change_pct > 0 else ("down" if change_pct < 0 else "flat"),
+            "source": "mock",
         })
     random.seed()
-    return jsonify({"ok": True, "data": data, "date": date.today().isoformat()})
+    return data
+
+
+def fetch_kamis_prices():
+    """KAMIS Open API(dailyPriceByCategoryList)로 식량작물/채소류/과일류 소매가격을 조회해
+    MARKET_ITEMS 이름과 매칭되는 실제 시세 데이터를 반환한다. 실패 시 None."""
+    if not KAMIS_CERT_KEY or not KAMIS_CERT_ID:
+        return None
+    wanted = {it["name"]: it for it in MARKET_ITEMS}
+    found = {}
+    try:
+        for category_code in ("100", "200", "400"):  # 식량작물/채소류/과일류
+            resp = requests.get(KAMIS_URL, params={
+                "action": "dailyPriceByCategoryList",
+                "p_cert_key": KAMIS_CERT_KEY,
+                "p_cert_id": KAMIS_CERT_ID,
+                "p_returntype": "json",
+                "p_product_cls_code": "01",  # 소매
+                "p_item_category_code": category_code,
+                "p_convert_kg_yn": "N",
+            }, timeout=8)
+            payload = resp.json()
+            rows = payload.get("data", {}).get("item", []) if isinstance(payload.get("data"), dict) else []
+            for row in rows:
+                name = (row.get("item_name") or "").strip()
+                if name not in wanted or name in found:
+                    continue
+                try:
+                    today_price = int(str(row.get("dpr1", "0")).replace(",", "") or 0)
+                    prev_price = int(str(row.get("dpr2", "0")).replace(",", "") or 0)
+                except (ValueError, TypeError):
+                    continue
+                if today_price <= 0:
+                    continue
+                change_pct = round((today_price - prev_price) / prev_price * 100, 1) if prev_price > 0 else 0.0
+                found[name] = {
+                    "name": name, "unit": wanted[name]["unit"],
+                    "price": today_price, "change_pct": change_pct,
+                    "trend": "up" if change_pct > 0 else ("down" if change_pct < 0 else "flat"),
+                    "source": "kamis",
+                }
+        if not found:
+            return None
+        # 매칭 안 된 품목은 기존 순서 유지를 위해 모의 데이터로 보충
+        mock_by_name = {m["name"]: m for m in _mock_market_data()}
+        return [found.get(it["name"], mock_by_name[it["name"]]) for it in MARKET_ITEMS]
+    except Exception as e:
+        print(f"[KAMIS fetch error] {e}")
+        return None
+
+
+@app.route("/api/market", methods=["GET"])
+@login_required
+def api_market():
+    today = date.today().isoformat()
+    stale = (_market_cache["date"] != today or _market_cache["fetched_at"] is None or
+             (datetime.utcnow() - _market_cache["fetched_at"]).total_seconds() > 3600)
+    if stale:
+        data = fetch_kamis_prices()
+        if data is None:
+            data = _mock_market_data()
+        _market_cache["data"] = data
+        _market_cache["date"] = today
+        _market_cache["fetched_at"] = datetime.utcnow()
+    return jsonify({"ok": True, "data": _market_cache["data"], "date": today})
 
 
 # ----------------------------------------------------------------------
