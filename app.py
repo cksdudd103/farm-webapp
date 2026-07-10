@@ -458,6 +458,32 @@ class RdaNotice(db.Model):
         }
 
 
+class Payment(db.Model):
+    __tablename__ = "payments"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    plan_id = db.Column(db.Integer, db.ForeignKey("plans.id"), nullable=False)
+    order_id = db.Column(db.String(64), unique=True, nullable=False)
+    order_name = db.Column(db.String(120))
+    amount = db.Column(db.Integer, nullable=False)
+    billing_cycle = db.Column(db.String(10), default="monthly")
+    promo_code = db.Column(db.String(40))
+    status = db.Column(db.String(20), default="pending")  # pending, approved, failed
+    payment_key = db.Column(db.String(200))
+    method = db.Column(db.String(30))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    approved_at = db.Column(db.DateTime)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "order_id": self.order_id, "order_name": self.order_name,
+            "amount": self.amount, "billing_cycle": self.billing_cycle,
+            "status": self.status, "method": self.method,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+        }
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -995,6 +1021,136 @@ def api_subscriptions_upgrade():
     log_plan_change(current_user.id, prev.get("plan_name"), plan.name, action,
                      detail=f"{billing_cycle} 결제" + (f" / 프로모션 {promo.code} 적용" if promo else ""))
     return jsonify({"ok": True, "data": get_current_subscription(current_user.id)})
+
+
+def _activate_subscription(user_id, plan, billing_cycle, promo=None):
+    """Shared logic to activate a plan for a user (used by free-upgrade and paid checkout)."""
+    expiry_date = None
+    if plan.code != "free":
+        days = 365 if billing_cycle == "annual" else 30
+        expiry_date = (date.today() + timedelta(days=days)).isoformat()
+
+    prev = get_current_subscription(user_id)
+    action = "upgrade"
+    if prev.get("plan_id") and prev.get("plan_id") != plan.id:
+        prev_plan = db.session.get(Plan, prev.get("plan_id"))
+        if prev_plan and prev_plan.display_order > plan.display_order:
+            action = "downgrade"
+
+    sub = UserSubscription(
+        user_id=user_id, plan_id=plan.id, billing_cycle=billing_cycle,
+        status="active", start_date=date.today().isoformat(), expiry_date=expiry_date,
+        promo_code=promo.code if promo else None,
+    )
+    db.session.add(sub)
+    if promo:
+        promo.used_count = (promo.used_count or 0) + 1
+    db.session.commit()
+    log_plan_change(user_id, prev.get("plan_name"), plan.name, action,
+                     detail=f"{billing_cycle} 결제" + (f" / 프로모션 {promo.code} 적용" if promo else ""))
+    return get_current_subscription(user_id)
+
+
+def _plan_price(plan, billing_cycle):
+    return plan.price_annual if billing_cycle == "annual" else plan.price_monthly
+
+
+TOSS_SECRET_KEY = os.environ.get("TOSS_SECRET_KEY", "")
+
+
+@app.route("/api/payments/prepare", methods=["POST"])
+@login_required
+def api_payments_prepare():
+    data = json_body()
+    plan_id = data.get("plan_id")
+    plan = db.session.get(Plan, plan_id) if plan_id else None
+    if not plan or not plan.is_active:
+        return jsonify({"ok": False, "msg": "선택할 수 없는 요금제입니다."}), 400
+    billing_cycle = data.get("billing_cycle", "monthly")
+    if billing_cycle not in ("monthly", "annual"):
+        billing_cycle = "monthly"
+
+    promo_code_input = (data.get("promo_code") or "").strip()
+    promo = None
+    if promo_code_input:
+        promo = PromoCode.query.filter(db.func.upper(PromoCode.code) == promo_code_input.upper()).first()
+        if not promo or not promo.is_valid():
+            return jsonify({"ok": False, "msg": "유효하지 않거나 만료된 프로모션 코드입니다."}), 400
+
+    base_amount = _plan_price(plan, billing_cycle)
+    amount = base_amount
+    if promo and promo.discount_percent:
+        amount = round(base_amount * (1 - promo.discount_percent / 100))
+
+    if amount <= 0:
+        # Free plan or 100% discount: activate immediately, no payment needed.
+        sub = _activate_subscription(current_user.id, plan, billing_cycle, promo)
+        return jsonify({"ok": True, "data": {"free": True, "subscription": sub}})
+
+    order_id = f"order_{uuid.uuid4().hex}"
+    payment = Payment(
+        user_id=current_user.id, plan_id=plan.id, order_id=order_id,
+        order_name=f"{plan.name} 요금제 ({'연간' if billing_cycle == 'annual' else '월간'})",
+        amount=amount, billing_cycle=billing_cycle,
+        promo_code=promo.code if promo else None, status="pending",
+    )
+    db.session.add(payment)
+    db.session.commit()
+    return jsonify({"ok": True, "data": {
+        "free": False, "order_id": order_id, "order_name": payment.order_name,
+        "amount": amount, "customer_name": current_user.name, "customer_email": current_user.email,
+    }})
+
+
+@app.route("/api/payments/toss/confirm", methods=["POST"])
+@login_required
+def api_payments_toss_confirm():
+    data = json_body()
+    payment_key = data.get("paymentKey")
+    order_id = data.get("orderId")
+    amount = data.get("amount")
+    if not payment_key or not order_id or amount is None:
+        return jsonify({"ok": False, "msg": "잘못된 요청입니다."}), 400
+
+    payment = Payment.query.filter_by(order_id=order_id, user_id=current_user.id).first()
+    if not payment:
+        return jsonify({"ok": False, "msg": "결제 정보를 찾을 수 없습니다."}), 404
+    if payment.status == "approved":
+        return jsonify({"ok": True, "data": get_current_subscription(current_user.id)})
+    if int(amount) != int(payment.amount):
+        return jsonify({"ok": False, "msg": "결제 금액이 일치하지 않습니다."}), 400
+    if not TOSS_SECRET_KEY:
+        return jsonify({"ok": False, "msg": "결제 서버 설정(TOSS_SECRET_KEY)이 완료되지 않았습니다."}), 500
+
+    try:
+        resp = requests.post(
+            "https://api.tosspayments.com/v1/payments/confirm",
+            json={"paymentKey": payment_key, "orderId": order_id, "amount": int(amount)},
+            auth=(TOSS_SECRET_KEY, ""),
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        return jsonify({"ok": False, "msg": f"결제 승인 요청 실패: {e}"}), 502
+
+    result = resp.json() if resp.content else {}
+    if resp.status_code != 200:
+        payment.status = "failed"
+        db.session.commit()
+        return jsonify({"ok": False, "msg": result.get("message", "결제 승인에 실패했습니다.")}), 400
+
+    plan = db.session.get(Plan, payment.plan_id)
+    promo = None
+    if payment.promo_code:
+        promo = PromoCode.query.filter(db.func.upper(PromoCode.code) == payment.promo_code.upper()).first()
+
+    payment.status = "approved"
+    payment.payment_key = payment_key
+    payment.method = result.get("method")
+    payment.approved_at = datetime.utcnow()
+    db.session.commit()
+
+    sub = _activate_subscription(current_user.id, plan, payment.billing_cycle, promo)
+    return jsonify({"ok": True, "data": sub})
 
 
 # ----------------------------------------------------------------------
