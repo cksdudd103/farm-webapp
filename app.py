@@ -12,6 +12,10 @@ from datetime import datetime, date, timedelta
 
 import requests
 from bs4 import BeautifulSoup
+try:
+    import google.generativeai as genai
+except ImportError:  # pragma: no cover - optional dependency
+    genai = None
 from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -48,12 +52,33 @@ app.config["SESSION_COOKIE_SECURE"] = True
 app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
 app.config["REMEMBER_COOKIE_SECURE"] = True
 
-ADMIN_SIGNUP_CODE = os.environ.get("ADMIN_SIGNUP_CODE", "영농102")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_API_KEY and genai:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+
+def public_image_url(image_path):
+    if not image_path:
+        return None
+    if image_path.startswith("http://") or image_path.startswith("https://"):
+        return image_path
+    path = image_path.lstrip("/")
+    host = os.environ.get("BACKEND_PUBLIC_URL", request.host_url.rstrip("/"))
+    return f"{host}/{path}"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # 안드로이드 앱 등 외부(모든 origin)에서 API를 호출할 수 있도록 CORS 허용
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
+
+
+# ----------------------------------------------------------------------
+# 정적 파일 서빙 (업로드 이미지)
+# ----------------------------------------------------------------------
+@app.route("/uploads/<path:filename>")
+def uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -289,13 +314,13 @@ class Crop(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
-        owner = db.session.get(User, self.user_id)
         return {
             "id": self.id, "user_id": self.user_id, "name": self.name,
             "variety": self.variety, "field_location": self.field_location,
             "area": self.area, "planting_date": self.planting_date,
             "expected_harvest_date": self.expected_harvest_date,
-            "status": self.status, "memo": self.memo, "image": self.image,
+            "status": self.status, "memo": self.memo,
+            "image": public_image_url(self.image),
             "is_public": self.is_public,
             "owner_name": owner.name if owner else None,
             "created_at": self.created_at.strftime("%Y-%m-%d") if self.created_at else None
@@ -322,7 +347,7 @@ class Journal(db.Model):
             "id": self.id, "user_id": self.user_id, "crop_id": self.crop_id,
             "crop_name": crop.name if crop else None,
             "date": self.date, "work_type": self.work_type, "weather": self.weather,
-            "content": self.content, "image": self.image,
+            "content": self.content, "image": public_image_url(self.image),
             "is_public": self.is_public,
             "owner_name": owner.name if owner else None,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None
@@ -423,7 +448,7 @@ class Post(db.Model):
             "id": self.id, "user_id": self.user_id,
             "author_name": author.name if author else "알수없음",
             "category": self.category, "title": self.title, "content": self.content,
-            "image": self.image, "views": self.views, "is_pinned": self.is_pinned,
+            "image": public_image_url(self.image), "views": self.views, "is_pinned": self.is_pinned,
             "has_attachment": bool(self.image),
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None,
             "created_date": self.created_at.strftime("%Y-%m-%d") if self.created_at else None
@@ -445,7 +470,7 @@ class Diagnosis(db.Model):
     def to_dict(self):
         return {
             "id": self.id, "user_id": self.user_id, "crop_name": self.crop_name,
-            "image": self.image, "disease_name": self.disease_name,
+            "image": public_image_url(self.image), "disease_name": self.disease_name,
             "confidence": self.confidence, "severity": self.severity,
             "advice": self.advice,
             "created_at": self.created_at.strftime("%Y-%m-%d %H:%M") if self.created_at else None
@@ -1873,7 +1898,7 @@ def api_posts_delete(pid):
 
 
 # ----------------------------------------------------------------------
-# AI 작물 진단 (Diagnoses) - 간이 모의 진단 엔진
+# AI 작물 진단 (Diagnoses) - Gemini Vision 연동
 # ----------------------------------------------------------------------
 DISEASE_DB = [
     {"name": "정상 (건강한 잎)", "severity": "정상",
@@ -1893,6 +1918,84 @@ DISEASE_DB = [
 ]
 
 
+def _fallback_diagnosis():
+    result = random.choice(DISEASE_DB)
+    return {
+        "disease_name": result["name"],
+        "confidence": round(random.uniform(72.0, 98.5), 1),
+        "severity": result["severity"],
+        "advice": result["advice"],
+        "ai": False,
+    }
+
+
+def _parse_gemini_response(text):
+    """Gemini 응답에서 JSON을 추출하거나 자유 텍스트를 파싱한다."""
+    import re
+    text = text.strip()
+    json_match = re.search(r"\{.*\}", text, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group(0))
+            return {
+                "disease_name": data.get("disease_name", data.get("병해충명", "진단 결과 없음")),
+                "confidence": float(data.get("confidence", data.get("확신도", 85))),
+                "severity": data.get("severity", data.get("심각도", "주의")),
+                "advice": data.get("advice", data.get("조치법", text)),
+                "ai": True,
+            }
+        except Exception:
+            pass
+    lines = [ln.strip("- * \n\r") for ln in text.splitlines() if ln.strip()]
+    disease = "진단 결과 없음"
+    severity = "주의"
+    advice = text
+    for ln in lines:
+        if "병해충" in ln or "질병" in ln:
+            disease = ln.split(":", 1)[-1].strip() or ln
+        elif "심각도" in ln or "위험" in ln or "경고" in ln or "주의" in ln or "정상" in ln:
+            for s in ["위험", "경고", "주의", "정상"]:
+                if s in ln:
+                    severity = s
+                    break
+        elif "조치" in ln or "관리" in ln or "방법" in ln:
+            advice = ln.split(":", 1)[-1].strip() or ln
+    return {"disease_name": disease, "confidence": 85.0, "severity": severity, "advice": advice, "ai": True}
+
+
+def analyze_plant_image(image_full_path, crop_name="미지정"):
+    """Gemini Vision API로 식물 이미지를 분석한다. 실패 시 fallback 반환."""
+    if not genai or not GEMINI_API_KEY:
+        return _fallback_diagnosis()
+
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        with open(image_full_path, "rb") as f:
+            image_data = f.read()
+        ext = image_full_path.rsplit(".", 1)[-1].lower()
+        mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
+
+        prompt = (
+            f"이 사진은 농작물 '{crop_name}'의 병해충 진단용 사진입니다. "
+            "사진을 분석하고 아래 JSON 형식으로만 답변해주세요. "
+            "disease_name은 병해충/질병 이름(한국어), confidence는 0~100 사이 확신도 숫자, "
+            "severity는 '정상', '주의', '경고', '위험' 중 하나, advice는 100자 내외의 구체적 대처법(한국어)입니다.\n"
+            "{\"disease_name\":\"...\",\"confidence\":85,\"severity\":\"...\",\"advice\":\"...\"}"
+        )
+
+        response = model.generate_content(
+            [{"mime_type": mime, "data": image_data}, prompt],
+            generation_config={"temperature": 0.2, "max_output_tokens": 512}
+        )
+        text = response.text or ""
+        result = _parse_gemini_response(text)
+        return result
+    except Exception as e:
+        print(f"Gemini diagnosis error: {e}")
+        return _fallback_diagnosis()
+
+
 @app.route("/api/diagnoses", methods=["GET"])
 @login_required
 def api_diagnoses_list():
@@ -1908,16 +2011,16 @@ def api_diagnoses_create():
     if not image_path:
         return jsonify({"ok": False, "msg": "진단할 이미지를 업로드해주세요."}), 400
 
-    # 모의 AI 분석 (실제 모델 미탑재 - 데모용 랜덤 규칙 기반 결과)
-    result = random.choice(DISEASE_DB)
-    confidence = round(random.uniform(72.0, 98.5), 1)
+    crop_name = data.get("crop_name", "미지정")
+    full_path = os.path.join(UPLOAD_FOLDER, os.path.basename(image_path))
+    result = analyze_plant_image(full_path, crop_name)
 
     d = Diagnosis(
         user_id=current_user.id,
-        crop_name=data.get("crop_name", "미지정"),
+        crop_name=crop_name,
         image=image_path,
-        disease_name=result["name"],
-        confidence=confidence,
+        disease_name=result["disease_name"],
+        confidence=result["confidence"],
         severity=result["severity"],
         advice=result["advice"],
     )
