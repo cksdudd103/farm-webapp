@@ -51,6 +51,10 @@ app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
 app.config["REMEMBER_COOKIE_SECURE"] = True
+# 세션 유지 기간: 로그인 상태를 길게 유지 (모바일/웹 모두)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["REMEMBER_COOKIE_DURATION"] = timedelta(days=365)
+app.config["REMEMBER_COOKIE_REFRESH_EACH_REQUEST"] = True
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY and genai:
@@ -2202,8 +2206,19 @@ def fetch_kamis_prices(regday):
                 "p_item_category_code": category_code,
                 "p_regday": regday,
                 "p_convert_kg_yn": "N",
-            }, timeout=8)
-            payload = resp.json()
+            }, timeout=5)
+            # KAMIS는 인증 실패/점검 시 HTML 오류 페이지를 반환할 수 있음
+            if resp.status_code != 200:
+                print(f"[KAMIS] non-200 status: {resp.status_code} for category {category_code}")
+                continue
+            if "json" not in (resp.headers.get("Content-Type", "") or ""):
+                print(f"[KAMIS] unexpected content-type: {resp.headers.get('Content-Type')} for category {category_code}")
+                continue
+            try:
+                payload = resp.json()
+            except Exception as e:
+                print(f"[KAMIS] json parse error for category {category_code}: {e} (len={len(resp.text)})")
+                continue
             rows = payload.get("data", {}).get("item", []) if isinstance(payload.get("data"), dict) else []
             for row in rows:
                 name = (row.get("item_name") or "").strip()
