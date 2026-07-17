@@ -640,6 +640,12 @@ def apply_grade_discount(price, user):
 # ----------------------------------------------------------------------
 # 페이지 라우트 (Page Routes)
 # ----------------------------------------------------------------------
+@app.route("/api/health")
+def api_health():
+    """UptimeRobot 등 외부 모니터링용 헬스체크 (인증 불필요)"""
+    return jsonify({"ok": True, "status": "up"})
+
+
 @app.route("/")
 def login_page():
     if current_user.is_authenticated:
